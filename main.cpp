@@ -1,121 +1,107 @@
-#include <opencv2/core/core.hpp>
-#include <opencv2/features2d/features2d.hpp>
+#include <opencv2/opencv.hpp>
+#include <opencv2/tracking.hpp>
+#include <opencv2/core/ocl.hpp>
 #include <opencv2/xfeatures2d.hpp>
-#include <opencv2/highgui.hpp>
-#include <opencv2/highgui/highgui.hpp>
-#include <iostream>
-#include <opencv2/imgproc.hpp>
-#include <opencv2/features2d.hpp>
-#include <opencv2/calib3d.hpp>
-#include "opencv2/calib3d/calib3d.hpp"
-#include "opencv2\opencv.hpp"
-#include "opencv2\highgui.hpp"
-#include "opencv2\tracking.hpp"
 
 using namespace cv;
 using namespace std;
+#define SSTR( x ) static_cast< std::ostringstream & >( \
+( std::ostringstream() << std::dec << x ) ).str()
 
-int main() {
-	namedWindow("Teste", WINDOW_AUTOSIZE);
-	Mat image1, image2, imageAux;
-	VideoCapture cap("teste2.MP4");
+int main(int argc, char** argv) {
+	// List of tracker types in OpenCV 3.4.1
+	string trackerTypes[8] = { "BOOSTING", "MIL", "KCF", "TLD","MEDIANFLOW", "GOTURN", "MOSSE", "CSRT" };
 
-	if (!cap.isOpened()) { //verifica se cap abriu como esperado
-		cout << "camera ou arquivo em falta";
-		std::cin.get();
+	// Create a tracker
+	string trackerType = trackerTypes[2];
+	Ptr<Tracker> tracker;
+	tracker = Tracker::create(trackerType);
+
+	// Lendo o video
+	VideoCapture video("teste3.mp4");
+
+	// Se não encontrar o arquivo fecha da error
+	if (!video.isOpened()) {
+		cout << "Arquivo não encontrado" << endl;
 		return 1;
 	}
-	image1 = imread("reis1.JPEG", IMREAD_GRAYSCALE);
 
-	if (image1.empty()) { //verifica a imagem1
-		cout << "imagem 1 vazia";
-		std::cin.get();
-		return 1;
-	}
-
-	int frameI = 0;
-
-	//Variaveis para criar o retangulo.
+	// Abre uma janela para selecionar o que quer rastreiar
 	Mat frame;
-	cv::Ptr<cv::Tracker> tracker = cv::TrackerKCF::create("");
-	cap.read(frame);
-	cv::Rect2d trackingBox = cv::selectROI(frame, false);
-//	tracker->init(frame, trackingBox);
-	int frameWidth = cap.get(cv::CAP_PROP_FRAME_WIDTH);
-	int frameHeigth = cap.get(cv::CAP_PROP_FRAME_HEIGHT);
-	VideoWriter output("teste.mp4", cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), 30, cv::Size(frameWidth, frameHeigth));
+	bool ok = video.read(frame);
+	Rect2d bbox = selectROI(frame, false);
+	rectangle(frame, bbox, Scalar(255, 0, 0), 2, 1);
+	tracker->init(frame, bbox);
 
+	//Recorta o pedaço que foi selecionado
+	Mat imagemSelecionada = frame(bbox);
 
-	while (true) {
-		cap >> image2;
-		if (image2.empty()) {
-			cout << "imagem 2 vazia";
-			std::cin.get();
-			return 1;
-		}
+	//Salvar o pedaço capturado
+	imwrite("captura.jpeg", imagemSelecionada);
+	Mat imagemCap = imread("captura.jpeg");
+
+	//Variaveis para manipular as imagens/video
+	Mat image2, imageAux;
+
+	while (video.read(frame)) {
 		
 
-		cvtColor(image2, image2, COLOR_BGR2GRAY);//coloca em grayscale
+		//coloca cada frame do video em image2, quando acabar encerra o loop
+		video >> image2;
+		if (image2.empty()) {
+			break;
+		}
 
+		// Se apertar ESC encerra o programa.
+		int k = waitKey(1);
+		if (k == 27) {
+			break;
+		}
+
+		//Encontrando os pontos de matches
 		vector<KeyPoint> kp1, kp2;
 		Mat descriptor1, descriptor2;
-
-		/*Aqui se tem 3 formas de encontrar os pontos de match.
-			SIFT, SURF e ORB
-		*/
 		Ptr<Feature2D> orb = xfeatures2d::SIFT::create(40);
-		//Ptr<Feature2D> orb = xfeatures2d::SURF::create(400);
-		//Ptr<Feature2D> orb = ORB::create(400);
-		orb->detectAndCompute(image1, Mat(), kp1, descriptor1);
+		orb->detectAndCompute(imagemCap, Mat(), kp1, descriptor1);
 		orb->detectAndCompute(image2, Mat(), kp2, descriptor2);
 
-		
-
-
-		drawKeypoints(image1, kp1, imageAux);
+		//Desenha os orbs encontrados
+		drawKeypoints(imagemCap, kp1, imageAux);
 		drawKeypoints(image2, kp2, image2);
-
 		vector<DMatch> matches;
 		BFMatcher matcher;
 		matcher.match(descriptor1, descriptor2, matches);
-
 		/*Mostra os pontos chave tanto o vídeo quanto na imagem de apoio (figura que se quer rastrear)
 			em novas janelas
 		*/
-		imshow("teste", image2);
-		imshow("Teste", imageAux);
+		Mat img_Matches, H;
+		drawMatches(imagemCap, kp1, image2, kp2, matches, img_Matches);
+		imshow("Maches", img_Matches);
 
-		//Desenha os matches em uma nova janela
-		namedWindow("Teste", 0);
-		Mat img_Matches,H,frame;
-		//Stats stats;
-		drawMatches(image1, kp1, image2, kp2, matches, img_Matches);
-		imshow("Teste", img_Matches);
+		// Contador para o FPS
+		double timer = (double)getTickCount();
 
-		//Desenhar o Retangulo
-		rectangle(image2, trackingBox, cv::Scalar(255, 0, 0), 2, 8);
-		imshow("Video feed", image2);
-		output.write(image2);
+		//########Retangulo###########
+		// Atualiza o retangulo rastreado
+		bool ok = tracker->update(frame, bbox);
 
-		
-		//vector<Point2f> points1, points2;
-		//vector<Point2d> points1, points2;
-		vector<KeyPoint> points1, points2;;
+		// Calculate Frames per second (FPS)
+		float fps = getTickFrequency() / ((double)getTickCount() - timer);
+		string novoFPS = to_string((int)fps);
 
-		//if(points1.size()>=4)
-		//H = findHomography(points1, points2, RANSAC, 2.5f, img_Matches);
-
-		frameI = frameI + 1;
-
-		if (waitKey(1) == 27) {
-			std::cin.get();
-			break;
+		if (ok) {
+			// Se encontrar o ojeto rastreado no video, mostra um retango ao redor dele
+			rectangle(frame, bbox, Scalar(255, 0, 0), 2, 1);
 		}
+		else {
+			// Se não encontrar, mostra uma mensagem de erro
+			putText(frame, "Tracking failure detected", Point(100, 80), FONT_HERSHEY_SIMPLEX, 0.75, Scalar(0, 0, 255), 2);
+		}
+
+		//Mostrar FPS
+		putText(frame, "FPS: " + novoFPS, Point(50, 20), FONT_HERSHEY_SIMPLEX, 0.75, Scalar(50, 170, 50), 2);
+
+		// Mostrar o retangulo rastreando.
+		imshow("Tracking", frame);
 	}
-
-	std::cin.get();
-
-	cv::destroyAllWindows();
-
-	return 0;
 }
