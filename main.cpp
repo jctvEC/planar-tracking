@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
 	tracker = Tracker::create(trackerType);
 
 	// Lendo o video
-	VideoCapture video("teste3.mp4");
+	VideoCapture video("teste4.mp4");
 
 	// Se não encontrar o arquivo fecha da error
 	if (!video.isOpened()) {
@@ -108,21 +108,23 @@ int main(int argc, char** argv) {
 		}
 
 		// Desenha os raios dos Good matches 2
-		Mat img_matches;
+		Mat img_matches, H;
 		drawMatches(imagemCap, kp1, image2, kp2,
 			good_matches, img_matches, Scalar::all(-1), Scalar::all(-1),
 			vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
 		vector<Point2f> obj;
 		vector<Point2f> scene;
 
-		for (int i = 0; i < good_matches.size(); i++){
-			obj.push_back(kp1[good_matches[i].queryIdx].pt);
-			scene.push_back(kp2[good_matches[i].trainIdx].pt);
-		}
-		
-		// Faz a homografia entre a imagem e o video
-		Mat H = findHomography(obj, scene);
+		if (good_matches.size() > 0) {
+			for (int i = 0; i < good_matches.size(); i++) {
+				obj.push_back(kp1[good_matches[i].queryIdx].pt);
+				scene.push_back(kp2[good_matches[i].trainIdx].pt);
+			}
 
+
+			// Faz a homografia entre a imagem e o video
+			H = findHomography(obj, scene);
+		}
 
 		//############## - GOOD MATCHS MODELO 1 - ##################
 		//Realiza o calculo para pegar os melhores pontos
@@ -131,17 +133,19 @@ int main(int argc, char** argv) {
 		matches.erase(matches.begin() + numGoodMatches, matches.end());
 
 		// Desenha os raios dos Good matches 1
-		Mat imMatches;
+		Mat imMatches,h;
 		drawMatches(imagemCap, kp1, image2, kp2, matches, imMatches);
 		vector<Point2f> points1, points2;
-		for (size_t i = 0; i < matches.size(); i++){
-			points1.push_back(kp1[matches[i].queryIdx].pt);
-			points2.push_back(kp2[matches[i].trainIdx].pt);
+
+		if (good_matches.size() > 0) {
+			for (size_t i = 0; i < matches.size(); i++) {
+				points1.push_back(kp1[matches[i].queryIdx].pt);
+				points2.push_back(kp2[matches[i].trainIdx].pt);
+			}
+
+			// Faz a homografia entre a imagem e o video
+			h = findHomography(points1, points2);
 		}
-
-		// Faz a homografia entre a imagem e o video
-		Mat h = findHomography(points1, points2);
-
 		// Pega as cordenadas da image e manda para o video, se detectar
 		std::vector<Point2f> obj_corners(4);
 		obj_corners[0] = cvPoint(0, 0); obj_corners[1] = cvPoint(imagemCap.cols, 0);
@@ -149,6 +153,7 @@ int main(int argc, char** argv) {
 		std::vector<Point2f> scene_corners(4);
 
 		// Coloca a homografia com as coordenadas
+		if (good_matches.size() > 0)
 		perspectiveTransform(obj_corners, scene_corners, h);
 
 		// DESSENHAR AS LINHAS NA FORMA 1
@@ -158,6 +163,7 @@ int main(int argc, char** argv) {
 		line(imMatches, scene_corners[3] + Point2f(imagemCap.cols, 0), scene_corners[0] + Point2f(imagemCap.cols, 0), Scalar(0, 255, 0), 4);
 		
 		// DESSENHAR AS LINHAS NA FORMA 2
+		if (good_matches.size() > 0)
 		perspectiveTransform(obj_corners, scene_corners, H);
 		line(img_matches, scene_corners[0] + Point2f(imagemCap.cols, 0), scene_corners[1] + Point2f(imagemCap.cols, 0), Scalar(0, 255, 0), 4);
 		line(img_matches, scene_corners[1] + Point2f(imagemCap.cols, 0), scene_corners[2] + Point2f(imagemCap.cols, 0), Scalar(0, 255, 0), 4);
